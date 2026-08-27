@@ -92,6 +92,64 @@ describe("ImapStream", () => {
         expect(items.map(i => i.line)).toEqual(["A10 OK wrong tag"])
     })
 
+
+    test("reassembles a large literal delivered in many small chunks", async () => {
+        // 512 KiB in 4 KiB chunks — the shape that made the old
+        // copy-per-chunk buffering quadratic.
+        const size = 512 * 1024
+        const payload = new Uint8Array(size)
+        for (let i = 0; i < size; i++) payload[i] = i % 251
+        const chunks: (string | Uint8Array)[] = [`* 1 FETCH (BODY[] {${size}}\r\n`]
+        for (let pos = 0; pos < size; pos += 4096) {
+            chunks.push(payload.subarray(pos, Math.min(pos + 4096, size)))
+        }
+        chunks.push(")\r\n")
+
+        const s = new ImapStream(toStream(chunks).getReader())
+        const item = await s.readItem()
+        expect(item.literal!.length).toBe(size)
+        expect(item.literal).toEqual(payload)
+        const close = await s.readItem()
+        expect(close.line).toBe(")")
+    })
+
+    test("keeps parsing correctly after a literal larger than the shrink threshold", async () => {
+        const size = (1 << 20) + 4096
+        const payload = new Uint8Array(size).fill(0x61)
+        const s = new ImapStream(toStream([
+            `* 1 FETCH (BODY[] {${size}}\r\n`,
+            payload,
+            ")\r\n",
+            "* 2 EXISTS\r\n"
+        ]).getReader())
+        const item = await s.readItem()
+        expect(item.literal!.length).toBe(size)
+        expect((await s.readItem()).line).toBe(")")
+        expect((await s.readItem()).line).toBe("* 2 EXISTS")
+    })
+
+    test("handles many lines and literals arriving in one chunk", async () => {
+        const s = new ImapStream(toStream([
+            "* 1 EXISTS\r\n* 2 FETCH (BODY[] {3}\r\nabc)\r\n* 3 EXISTS\r\n"
+        ]).getReader())
+        expect((await s.readItem()).line).toBe("* 1 EXISTS")
+        const lit = await s.readItem()
+        expect(new TextDecoder().decode(lit.literal)).toBe("abc")
+        expect((await s.readItem()).line).toBe(")")
+        expect((await s.readItem()).line).toBe("* 3 EXISTS")
+    })
+
+    test("handles a CRLF split across chunks after earlier consumed data", async () => {
+        const s = new ImapStream(toStream([
+            "* 1 EXISTS\r\n* 2 EXI",
+            "STS\r",
+            "\n* 3 EXISTS\r\n"
+        ]).getReader())
+        expect((await s.readItem()).line).toBe("* 1 EXISTS")
+        expect((await s.readItem()).line).toBe("* 2 EXISTS")
+        expect((await s.readItem()).line).toBe("* 3 EXISTS")
+    })
+
     test("times out when the server never responds", async () => {
         const s = new ImapStream(new ReadableStream({ pull() {} }).getReader(), 50)
         await expect(s.readItem()).rejects.toThrow(/timed out/)

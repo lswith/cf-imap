@@ -29,9 +29,24 @@ export class ImapError extends Error {
  *   contain CRLF, parens or any other bytes
  * - Multi-byte UTF-8 sequences split across chunk boundaries
  */
+const INITIAL_CAPACITY = 4096
+// Above this, an emptied buffer is reallocated small again so one large
+// literal does not pin its peak allocation for the connection's lifetime.
+const SHRINK_THRESHOLD = 1 << 20
+
 export class ImapStream {
     private reader: ReadableStreamDefaultReader<any>
-    private buffer = new Uint8Array(0)
+    /**
+     * Growable receive buffer. The live (unconsumed) region is
+     * [start, end); appends double the capacity when needed rather than
+     * reallocating per chunk, so buffering a literal is O(n) amortized in
+     * its size instead of O(n²).
+     */
+    private buffer = new Uint8Array(INITIAL_CAPACITY)
+    private start = 0
+    private end = 0
+    /** Position up to which the CRLF scan has already looked, so refills don't rescan. */
+    private scanPos = 0
     private textDecoder = new TextDecoder()
     private timeoutMs: number
     /**
@@ -91,18 +106,59 @@ export class ImapStream {
         return true
     }
 
+    private get available(): number {
+        return this.end - this.start
+    }
+
     private appendChunk(result: ReadableStreamReadResult<any>): void {
         if (result.done) throw new Error("IMAP connection closed by server")
-        const newBuf = new Uint8Array(this.buffer.length + result.value.length)
-        newBuf.set(this.buffer)
-        newBuf.set(result.value, this.buffer.length)
-        this.buffer = newBuf
+        const chunk: Uint8Array = result.value
+        this.ensureRoom(chunk.length)
+        this.buffer.set(chunk, this.end)
+        this.end += chunk.length
+    }
+
+    /**
+     * Makes room to append n bytes: compacts the live region to the front
+     * when the consumed prefix alone frees enough space, and otherwise grows
+     * the capacity by doubling.
+     */
+    private ensureRoom(n: number): void {
+        if (this.end + n <= this.buffer.length) return
+        const len = this.available
+        if (len + n <= this.buffer.length) {
+            this.buffer.copyWithin(0, this.start, this.end)
+        } else {
+            let capacity = this.buffer.length
+            while (capacity < len + n) capacity *= 2
+            const next = new Uint8Array(capacity)
+            next.set(this.buffer.subarray(this.start, this.end))
+            this.buffer = next
+        }
+        this.scanPos -= this.start
+        this.end = len
+        this.start = 0
+    }
+
+    /** Marks [start, consumedTo) consumed and resets the buffer when it empties. */
+    private consumeTo(consumedTo: number): void {
+        this.start = consumedTo
+        this.scanPos = consumedTo
+        if (this.start === this.end) {
+            this.start = 0
+            this.end = 0
+            this.scanPos = 0
+            if (this.buffer.length > SHRINK_THRESHOLD) this.buffer = new Uint8Array(INITIAL_CAPACITY)
+        }
     }
 
     private indexOfCRLF(): number {
-        for (let i = 0; i < this.buffer.length - 1; i++) {
+        for (let i = Math.max(this.start, this.scanPos); i < this.end - 1; i++) {
             if (this.buffer[i] === 13 && this.buffer[i + 1] === 10) return i
         }
+        // Next scan may start at the last byte (it could be the CR of a pair
+        // completed by the next chunk), never earlier.
+        this.scanPos = Math.max(this.start, this.end - 1)
         return -1
     }
 
@@ -136,17 +192,16 @@ export class ImapStream {
         for (;;) {
             const idx = this.indexOfCRLF()
             if (idx !== -1) {
-                const lineBytes = this.buffer.slice(0, idx)
-                this.buffer = this.buffer.slice(idx + 2)
-                const line = this.textDecoder.decode(lineBytes, { stream: true })
+                const line = this.textDecoder.decode(this.buffer.subarray(this.start, idx), { stream: true })
+                this.consumeTo(idx + 2)
 
                 const marker = /\{(\d+)\+?\}$/.exec(line)
                 if (marker) {
                     const n = parseInt(marker[1])
                     if (n === 0) return { line, literal: new Uint8Array(0) }
-                    while (this.buffer.length < n) await this.fillBuffer()
-                    const literal = this.buffer.slice(0, n)
-                    this.buffer = this.buffer.slice(n)
+                    while (this.available < n) await this.fillBuffer()
+                    const literal = this.buffer.slice(this.start, this.start + n)
+                    this.consumeTo(this.start + n)
                     return { line, literal }
                 }
 
