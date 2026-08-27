@@ -6,9 +6,11 @@ import { parseImapList, quote, formatInternalDate, splitResponseCodes, parseInte
 import { decodeMimeEncodedWords, bytesToBase64 } from "./utils/decodeMime"
 import { parseHeaders, parseAddresses, parseMime, extractContent } from "./utils/mime"
 import { buildSearchQuery } from "./utils/search"
+import { parseStoreResponse } from "./utils/fetchResponse"
+import type { StoreResult } from "./utils/fetchResponse"
 
 export { ImapError }
-export type { Options, Email, Attachment, FetchEmailsProps, SearchEmailsProps, MailboxInfo, Folder, Namespace, CopyUidInfo, AppendResult, ResponseItem }
+export type { Options, Email, Attachment, FetchEmailsProps, SearchEmailsProps, MailboxInfo, Folder, Namespace, CopyUidInfo, AppendResult, ResponseItem, StoreResult }
 
 const CAP_RE = /\[CAPABILITY ([^\]]*)\]/
 
@@ -820,7 +822,7 @@ export class CFImap {
      * @param flags - Flags without the backslash, e.g. ["Seen", "Flagged"]
      * @param mode - add (default), remove or replace
      */
-    storeFlags = async (target: string, flags: string[], mode: "add" | "remove" | "replace" = "add", useUid = false): Promise<Array<{ seq: number, flags: string[] }>> => {
+    storeFlags = async (target: string, flags: string[], mode: "add" | "remove" | "replace" = "add", useUid = false): Promise<StoreResult[]> => {
         return this.command(async () => {
             this.requireConnection()
             this.requireFolder()
@@ -834,16 +836,7 @@ export class CFImap {
             await this.send(tag, `${useUid ? "UID " : ""}STORE ${target} ${op} (${flagStr})`)
             const { items } = await this.stream!.readUntilTag(tag)
 
-            const result: Array<{ seq: number, flags: string[] }> = []
-            for (const item of items) {
-                const m = /^\* (\d+) FETCH \((?:UID \d+ )?FLAGS \(([^)]*)\)(?: UID \d+)?\)$/.exec(item.line)
-                if (!m) continue
-                result.push({
-                    seq: parseInt(m[1]),
-                    flags: m[2].split(/\s+/).filter(Boolean).map(f => f.replace(/^\\/, ""))
-                })
-            }
-            return result
+            return parseStoreResponse(items)
         })
     }
 
