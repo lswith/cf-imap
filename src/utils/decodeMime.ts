@@ -59,6 +59,18 @@ const WIN1252_HIGH = [
     0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178
 ]
 
+function decodeLatin1(bytes: Uint8Array): string {
+    let out = ""
+    for (const b of bytes) out += String.fromCharCode(b)
+    return out
+}
+
+// ISO-8859-15 replaces exactly eight ISO-8859-1 codepoints (euro sign et al.)
+const ISO_8859_15_DELTA: Record<number, number> = {
+    0xA4: 0x20AC, 0xA6: 0x0160, 0xA8: 0x0161, 0xB4: 0x017D,
+    0xB8: 0x017E, 0xBC: 0x0152, 0xBD: 0x0153, 0xBE: 0x0178
+}
+
 /** Decodes bytes according to a charset. Falls back to latin-1 for unknown charsets. */
 export function decodeBytes(bytes: Uint8Array, charset?: string): string {
     const cs = (charset ?? "utf-8").toLowerCase().replace(/[_\s]/g, "-")
@@ -67,10 +79,20 @@ export function decodeBytes(bytes: Uint8Array, charset?: string): string {
         return new TextDecoder("utf-8").decode(bytes)
     }
 
-    if (cs === "iso-8859-1" || cs === "iso8859-1" || cs === "latin1" || cs === "latin-1"
-        || cs.startsWith("iso-8859-") || cs.startsWith("iso8859-") || cs === "koi8-r" || cs === "koi8-u") {
+    // Only ISO-8859-1 maps bytes to codepoints 1:1 — the other ISO-8859
+    // variants and KOI8 must NOT take this path (their high bytes mean
+    // different characters) and are left to TextDecoder below, which
+    // implements them per the WHATWG Encoding Standard.
+    if (cs === "iso-8859-1" || cs === "iso8859-1" || cs === "latin1" || cs === "latin-1") {
+        return decodeLatin1(bytes)
+    }
+
+    // ISO-8859-15 is decoded here rather than via TextDecoder: it is the
+    // one variant common enough in mail (the euro sign) that its decoding
+    // must not depend on which encodings the runtime's TextDecoder ships.
+    if (cs === "iso-8859-15" || cs === "iso8859-15" || cs === "latin9" || cs === "latin-9") {
         let out = ""
-        for (const b of bytes) out += String.fromCharCode(b)
+        for (const b of bytes) out += String.fromCharCode(ISO_8859_15_DELTA[b] ?? b)
         return out
     }
 
@@ -86,9 +108,7 @@ export function decodeBytes(bytes: Uint8Array, charset?: string): string {
     try {
         return new TextDecoder(cs).decode(bytes)
     } catch {
-        let out = ""
-        for (const b of bytes) out += String.fromCharCode(b)
-        return out
+        return decodeLatin1(bytes)
     }
 }
 

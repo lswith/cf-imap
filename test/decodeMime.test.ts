@@ -81,4 +81,40 @@ describe("decodeBytes", () => {
         const bytes = Uint8Array.from([0x61, 0xe4])
         expect(decodeBytes(bytes, "x-mystery-charset")).toBe("aä")
     })
+
+    test("iso-8859-15 decodes the euro sign, not a currency sign", () => {
+        // 0xA4 is € in ISO-8859-15 but ¤ in ISO-8859-1
+        const bytes = Uint8Array.from([0x34, 0x32, 0xa4])
+        expect(decodeBytes(bytes, "iso-8859-15")).toBe("42€")
+        expect(decodeBytes(bytes, "ISO_8859-15")).toBe("42€")
+    })
+
+    test("iso-8859-15 keeps the codepoints it shares with latin-1", () => {
+        const bytes = Uint8Array.from([0x4a, 0x65, 0x6d, 0xe4, 0x72])
+        expect(decodeBytes(bytes, "iso-8859-15")).toBe("Jemär")
+    })
+
+    test("other iso-8859 variants are not decoded as latin-1", () => {
+        // 0xE1 is α in ISO-8859-7 (Greek) but á in ISO-8859-1
+        expect(decodeBytes(Uint8Array.from([0xe1]), "iso-8859-7")).toBe("α")
+    })
+
+    test("koi8 is not decoded as latin-1", () => {
+        // 0xC1 is Cyrillic а in KOI8-U but Á in ISO-8859-1
+        expect(decodeBytes(Uint8Array.from([0xc1]), "koi8-u")).toBe("а")
+    })
+
+    test("iso-8859-2 decodes correctly where the runtime's TextDecoder supports it", () => {
+        // 0xB1 is ą in ISO-8859-2 but ± in ISO-8859-1. Not every runtime
+        // ships every WHATWG encoding (workerd and Node do); where it is
+        // missing, decodeBytes keeps its documented latin-1 fallback.
+        let supported = true
+        try {
+            new TextDecoder("iso-8859-2")
+        } catch {
+            supported = false
+        }
+        const decoded = decodeBytes(Uint8Array.from([0xb1]), "iso-8859-2")
+        expect(decoded).toBe(supported ? "ą" : "±")
+    })
 })
