@@ -1,5 +1,5 @@
-import type { SearchEmailsProps } from "../types/emails"
-import { formatImapDate, quote, quoteIfNeeded } from "./imapList"
+import type { SearchEmailsProps } from "../types/emails.js"
+import { formatImapDate, quote, quoteIfNeeded } from "./imapList.js"
 
 const FLAG_KEYS: Record<string, string> = {
     answered: "ANSWERED",

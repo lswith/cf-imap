@@ -1,12 +1,12 @@
 import { connect } from "cloudflare:sockets"
-import type { Email, Attachment, FetchEmailsProps, SearchEmailsProps, MailboxInfo, Folder, Namespace, Options, CopyUidInfo, AppendResult } from "./types/emails"
-import { ImapStream, ImapError } from "./utils/imapStream"
-import type { ResponseItem } from "./utils/imapStream"
-import { parseImapList, quote, formatInternalDate, splitResponseCodes, encodeMutf7, decodeMutf7 } from "./utils/imapList"
-import { decodeMimeEncodedWords, bytesToBase64 } from "./utils/decodeMime"
-import { buildSearchQuery } from "./utils/search"
-import { parseStoreResponse, parseFetchEmails, buildHeaderFieldsSection } from "./utils/fetchResponse"
-import type { StoreResult } from "./utils/fetchResponse"
+import type { Email, Attachment, FetchEmailsProps, SearchEmailsProps, MailboxInfo, Folder, Namespace, Options, CopyUidInfo, AppendResult } from "./types/emails.js"
+import { ImapStream, ImapError } from "./utils/imapStream.js"
+import type { ResponseItem } from "./utils/imapStream.js"
+import { parseImapList, quote, formatInternalDate, splitResponseCodes, encodeMutf7, decodeMutf7 } from "./utils/imapList.js"
+import { decodeMimeEncodedWords, bytesToBase64 } from "./utils/decodeMime.js"
+import { buildSearchQuery } from "./utils/search.js"
+import { parseStoreResponse, parseFetchEmails, buildHeaderFieldsSection } from "./utils/fetchResponse.js"
+import type { StoreResult } from "./utils/fetchResponse.js"
 
 export { ImapError }
 export type { Options, Email, Attachment, FetchEmailsProps, SearchEmailsProps, MailboxInfo, Folder, Namespace, CopyUidInfo, AppendResult, ResponseItem, StoreResult }

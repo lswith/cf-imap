@@ -1,7 +1,7 @@
-import type { ResponseItem } from "./imapStream"
-import type { Email } from "../types/emails"
-import { parseHeaders, parseAddresses, parseMime, extractContent } from "./mime"
-import { parseInternalDate } from "./imapList"
+import type { ResponseItem } from "./imapStream.js"
+import type { Email } from "../types/emails.js"
+import { parseHeaders, parseAddresses, parseMime, extractContent } from "./mime.js"
+import { parseInternalDate } from "./imapList.js"
 
 export type StoreResult = {
     seq: number,

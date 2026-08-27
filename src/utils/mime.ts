@@ -1,5 +1,5 @@
-import { base64ToBytes, bytesToBase64, decodeBytes, decodeMimeEncodedWords, decodeQuotedPrintable } from "./decodeMime"
-import type { Attachment } from "../types/emails"
+import { base64ToBytes, bytesToBase64, decodeBytes, decodeMimeEncodedWords, decodeQuotedPrintable } from "./decodeMime.js"
+import type { Attachment } from "../types/emails.js"
 
 /** Splits raw header section into an unfolded, MIME-word-decoded map (lowercased names). */
 export function parseHeaders(raw: string): Record<string, string> {
