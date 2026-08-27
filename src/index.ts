@@ -2,11 +2,10 @@ import { connect } from "cloudflare:sockets"
 import type { Email, Attachment, FetchEmailsProps, SearchEmailsProps, MailboxInfo, Folder, Namespace, Options, CopyUidInfo, AppendResult } from "./types/emails"
 import { ImapStream, ImapError } from "./utils/imapStream"
 import type { ResponseItem } from "./utils/imapStream"
-import { parseImapList, quote, formatInternalDate, splitResponseCodes, parseInternalDate, encodeMutf7, decodeMutf7 } from "./utils/imapList"
+import { parseImapList, quote, formatInternalDate, splitResponseCodes, encodeMutf7, decodeMutf7 } from "./utils/imapList"
 import { decodeMimeEncodedWords, bytesToBase64 } from "./utils/decodeMime"
-import { parseHeaders, parseAddresses, parseMime, extractContent } from "./utils/mime"
 import { buildSearchQuery } from "./utils/search"
-import { parseStoreResponse } from "./utils/fetchResponse"
+import { parseStoreResponse, parseFetchEmails } from "./utils/fetchResponse"
 import type { StoreResult } from "./utils/fetchResponse"
 
 export { ImapError }
@@ -638,120 +637,7 @@ export class CFImap {
             await this.send(tag, `${useUid ? "UID " : ""}FETCH ${range} (UID FLAGS INTERNALDATE RFC822.SIZE ${bodyCommand})`)
             const { items } = await this.stream!.readUntilTag(tag)
 
-            const emails: Email[] = []
-            const LIT = "\u0000"
-            const tokens: string[] = []
-
-            for (const item of items) {
-                const m = /\{(\d+)\+?\}$/.exec(item.line)
-                if (m && item.literal) {
-                    tokens.push(item.line.slice(0, -m[0].length))
-                    tokens.push(LIT + new TextDecoder("utf-8").decode(item.literal))
-                } else {
-                    tokens.push(item.line)
-                }
-            }
-
-            let i = 0
-            while (i < tokens.length) {
-                const opening = /^\* (\d+) FETCH \(([\s\S]*)$/.exec(tokens[i]!)
-                if (!opening) {
-                    i++
-                    continue
-                }
-
-                const seq = parseInt(opening[1])
-                i++
-
-                // Collect the fetch data until the standalone closing paren
-                let data = opening[2] ?? ""
-                const parts: { section: "header" | "body" | null, content: string }[] = []
-                let pendingSection: "header" | "body" | null = null
-                if (/BODY\[HEADER/i.test(data)) pendingSection = "header"
-                else if (/BODY\[/i.test(data)) pendingSection = "body"
-
-                for (; i < tokens.length; i++) {
-                    const token = tokens[i]!
-                    if (token.startsWith(LIT)) {
-                        if (pendingSection) parts.push({ section: pendingSection, content: token.slice(LIT.length) })
-                        pendingSection = null
-                        continue
-                    }
-                    // Don't let the tagged completion response leak into the fetch data
-                    if (/^\S+ (OK|NO|BAD)( |$)/.test(token)) break
-                    if (token.trim() === ")") {
-                        i++
-                        break
-                    }
-                    data += " " + token
-                    if (/BODY\[HEADER/i.test(token)) pendingSection = "header"
-                    else if (/BODY\[/i.test(token)) pendingSection = "body"
-                }
-
-                const uidMatch = /UID (\d+)/.exec(data)
-                const flagsMatch = /FLAGS \(([^)]*)\)/.exec(data)
-                const dateMatch = /INTERNALDATE "([^"]+)"/.exec(data)
-                const sizeMatch = /RFC822\.SIZE (\d+)/.exec(data)
-
-                // Large bodies may be split into multiple BODY[]<origin>
-                // literals — concatenate the chunks in order.
-                const headerPart = parts.filter(p => p.section === "header").map(p => p.content).join("")
-                const bodyPart = parts.filter(p => p.section === "body").map(p => p.content).join("")
-
-                let rawMessage: string
-                if (fetchBody && bodyPart) {
-                    rawMessage = bodyPart
-                } else {
-                    rawMessage = ""
-                }
-
-                let headerStr: string
-                if (fetchBody && rawMessage) {
-                    const sepIdx = rawMessage.indexOf("\r\n\r\n")
-                    headerStr = sepIdx === -1 ? rawMessage : rawMessage.slice(0, sepIdx)
-                } else {
-                    headerStr = headerPart
-                }
-
-                const headerMap = parseHeaders(headerStr)
-
-                const email: Email = {
-                    uid: uidMatch ? parseInt(uidMatch[1]) : NaN,
-                    seq,
-                    flags: flagsMatch
-                        ? flagsMatch[1].split(/\s+/).filter(Boolean).map(f => f.replace(/^\\/, ""))
-                        : [],
-                    internalDate: dateMatch ? parseInternalDate(dateMatch[1]) : new Date(NaN),
-                    size: sizeMatch ? parseInt(sizeMatch[1]) : NaN,
-                    from: parseAddresses(headerMap["from"] ?? ""),
-                    to: parseAddresses(headerMap["to"] ?? ""),
-                    cc: parseAddresses(headerMap["cc"] ?? ""),
-                    subject: headerMap["subject"] ?? "",
-                    messageID: headerMap["message-id"] ?? "",
-                    contentType: headerMap["content-type"] ?? "",
-                    headers: headerMap,
-                    rawHeaders: headerStr,
-                    body: {
-                        text: undefined,
-                        html: undefined,
-                        raw: rawMessage
-                    },
-                    attachments: [],
-                    raw: rawMessage || headerStr
-                }
-
-                if (fetchBody && rawMessage) {
-                    const root = parseMime(new TextEncoder().encode(rawMessage))
-                    const extracted = extractContent(root)
-                    email.body.text = extracted.text
-                    email.body.html = extracted.html
-                    email.attachments = extracted.attachments
-                }
-
-                emails.push(email)
-            }
-
-            return emails
+            return parseFetchEmails(items, { fetchBody })
         })
     }
 
