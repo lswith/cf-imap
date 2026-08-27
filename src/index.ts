@@ -5,7 +5,7 @@ import type { ResponseItem } from "./utils/imapStream"
 import { parseImapList, quote, formatInternalDate, splitResponseCodes, encodeMutf7, decodeMutf7 } from "./utils/imapList"
 import { decodeMimeEncodedWords, bytesToBase64 } from "./utils/decodeMime"
 import { buildSearchQuery } from "./utils/search"
-import { parseStoreResponse, parseFetchEmails } from "./utils/fetchResponse"
+import { parseStoreResponse, parseFetchEmails, buildHeaderFieldsSection } from "./utils/fetchResponse"
 import type { StoreResult } from "./utils/fetchResponse"
 
 export { ImapError }
@@ -618,7 +618,7 @@ export class CFImap {
      * @param {boolean} [props.peek=true] - If true (default), fetching won't set the \Seen flag
      * @param {boolean} [props.fetchBody=true] - If true (default), the full message is fetched and parsed
      */
-    fetchEmails = async ({ folder, limit, fetchBody = true, byteLimit, peek = true, useUid = false }: FetchEmailsProps): Promise<Email[]> => {
+    fetchEmails = async ({ folder, limit, fetchBody = true, byteLimit, peek = true, useUid = false, headerFields }: FetchEmailsProps): Promise<Email[]> => {
         return this.command(async () => {
             this.requireConnection()
 
@@ -631,7 +631,7 @@ export class CFImap {
             const range = Array.isArray(limit) ? limit.join(":") : String(limit)
             const bodyCommand = fetchBody
                 ? `BODY${peek ? ".PEEK" : ""}[]${byteLimit ? `<0.${byteLimit}>` : ""}`
-                : `BODY${peek ? ".PEEK" : ""}[HEADER.FIELDS (SUBJECT FROM TO CC MESSAGE-ID CONTENT-TYPE DATE)]`
+                : `BODY${peek ? ".PEEK" : ""}[${buildHeaderFieldsSection(headerFields)}]`
 
             const tag = this.nextTag()
             await this.send(tag, `${useUid ? "UID " : ""}FETCH ${range} (UID FLAGS INTERNALDATE RFC822.SIZE ${bodyCommand})`)

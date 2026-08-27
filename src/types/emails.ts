@@ -59,7 +59,14 @@ export type FetchEmailsProps = {
      * always holds the sequence number in the selected folder.
      */
     useUid?: boolean,
-    peek?: boolean
+    peek?: boolean,
+    /**
+     * Header fields to request on a header-only fetch (fetchBody: false).
+     * Defaults to SUBJECT FROM TO CC MESSAGE-ID IN-REPLY-TO REFERENCES
+     * CONTENT-TYPE DATE. Names must be RFC 5322 field names (printable
+     * US-ASCII, no colon or space). Ignored when fetchBody is true.
+     */
+    headerFields?: string[]
 }
 
 export type Attachment = {

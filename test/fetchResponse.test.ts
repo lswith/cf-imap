@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { parseStoreResponse, parseFetchEmails } from "../src/utils/fetchResponse"
+import { parseStoreResponse, parseFetchEmails, buildHeaderFieldsSection, DEFAULT_HEADER_FIELDS } from "../src/utils/fetchResponse"
 
 const item = (line: string, literal: Uint8Array | null = null) => ({ line, literal })
 
@@ -171,5 +171,27 @@ describe("parseFetchEmails", () => {
         ])
         expect(emails.map(e => e.subject)).toEqual(["One", "Two"])
         expect(emails.map(e => e.body.text)).toEqual(["first\r\n", "second\r\n"])
+    })
+})
+
+describe("buildHeaderFieldsSection", () => {
+    test("requests the threading headers by default (RFC 5322 §3.6.4)", () => {
+        const section = buildHeaderFieldsSection()
+        expect(section).toBe("HEADER.FIELDS (SUBJECT FROM TO CC MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE DATE)")
+        expect(DEFAULT_HEADER_FIELDS).toContain("REFERENCES")
+        expect(DEFAULT_HEADER_FIELDS).toContain("IN-REPLY-TO")
+    })
+
+    test("accepts a caller-chosen field list and normalizes case", () => {
+        expect(buildHeaderFieldsSection(["subject", "x-priority"])).toBe("HEADER.FIELDS (SUBJECT X-PRIORITY)")
+    })
+
+    test("rejects field names that would break the IMAP command", () => {
+        expect(() => buildHeaderFieldsSection([])).toThrow()
+        expect(() => buildHeaderFieldsSection(["SUB JECT"])).toThrow()
+        expect(() => buildHeaderFieldsSection(["SUBJECT:"])).toThrow()
+        expect(() => buildHeaderFieldsSection(["SUBJ)ECT (X"])).toThrow()
+        expect(() => buildHeaderFieldsSection([""])).toThrow()
+        expect(() => buildHeaderFieldsSection(["日付"])).toThrow()
     })
 })

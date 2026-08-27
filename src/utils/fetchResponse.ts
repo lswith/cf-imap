@@ -44,6 +44,30 @@ export function parseStoreResponse(items: ResponseItem[]): StoreResult[] {
     return results
 }
 
+/**
+ * The header fields a header-only fetch (fetchBody: false) requests.
+ * References and In-Reply-To are included so threading (RFC 5322 §3.6.4)
+ * works without downloading full bodies.
+ */
+export const DEFAULT_HEADER_FIELDS = ["SUBJECT", "FROM", "TO", "CC", "MESSAGE-ID", "IN-REPLY-TO", "REFERENCES", "CONTENT-TYPE", "DATE"]
+
+/**
+ * Builds the HEADER.FIELDS (...) fetch section for a header-only FETCH.
+ * Field names are validated against RFC 5322 ftext (printable US-ASCII
+ * except colon; space would also break the parenthesized list) — they end
+ * up inside an IMAP command, so nothing else may pass.
+ */
+export function buildHeaderFieldsSection(fields: string[] = DEFAULT_HEADER_FIELDS): string {
+    if (!fields.length) throw new Error("headerFields must not be empty")
+    const normalized = fields.map(f => f.trim().toUpperCase())
+    for (const field of normalized) {
+        if (!/^[!-9;-~]+$/.test(field)) {
+            throw new Error(`Invalid header field name: ${JSON.stringify(field)}`)
+        }
+    }
+    return `HEADER.FIELDS (${normalized.join(" ")})`
+}
+
 type FetchToken =
     | { kind: "text", text: string }
     | { kind: "literal", bytes: Uint8Array }
